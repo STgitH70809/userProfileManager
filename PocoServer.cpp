@@ -1,20 +1,11 @@
-#include "Poco/Net/HTTPServer.h"
-#include "Poco/Net/HTTPRequestHandler.h"
-#include "Poco/Net/HTTPRequestHandlerFactory.h"
-#include "Poco/Net/HTTPServerParams.h"
-#include "Poco/Net/HTTPServerRequest.h"
-#include "Poco/Net/HTTPServerResponse.h"
-#include "Poco/Net/HTTPServerParams.h"
-#include "Poco/Net/ServerSocket.h"
-#include "Poco/Timestamp.h"
-#include "Poco/DateTimeFormatter.h"
-#include "Poco/DateTimeFormat.h"
 #include "Poco/Exception.h"
 #include "Poco/ThreadPool.h"
+#include "Poco/LRUCache.h"
 #include "Poco/Util/ServerApplication.h"
 #include "Poco/Util/Option.h"
 #include "Poco/Util/OptionSet.h"
 #include "Poco/Util/HelpFormatter.h"
+#include "Poco/LRUCache.h"
 #include "userProfileService.h"
 #include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/protocol/TJSONProtocol.h>
@@ -47,10 +38,11 @@ class userProfileServiceHandler : virtual public userProfileServiceIf {
 public:
     int newID;
     std::mutex mutexUpdate;
-    //std::map<int, userProfile> users;
+    Poco::LRUCache<int, userProfile> users;
+    
     kyotocabinet::HashDB db;
 
-    userProfileServiceHandler() {
+    userProfileServiceHandler() :users(300){
         if (!db.open("userProfiles.kch", kyotocabinet::HashDB::OWRITER | kyotocabinet::HashDB::OCREATE)) {
             std::cout << "open database error: " << db.error().name() << std::endl;
         }
@@ -58,10 +50,13 @@ public:
         std::string s;
 
         if (!db.get("0", &s)) {
-            std::cout << db.error().name() << std::endl;
+            newID = 1;
+            if(!db.set("0","1")){
+                std::cout << db.error().name() << std::endl;
+            }
+        }else{
+            newID = atoi(s.c_str());
         };
-
-        newID = atoi(s.c_str());
         std::cout << "nextID will be: " << newID << std::endl;
     }
 
@@ -79,17 +74,33 @@ public:
         if(!db.set("0",std::to_string(newID))){
             std::cout<< "error update key : " << db.error().name() << std::endl;
         }
-        
+        std::cout<< "add new to Cache" << std::endl;
+        users.add(newProfile.id,newProfile);
         mutexUpdate.unlock();
         
-        _return.profile = newProfile;
         _return.errorCode = setDB(newProfile.id,newProfile);
+        _return.profile = newProfile;
         printf("Create\n");
     }
 
     void Get(userProfileResult& _return, const int32_t id) {
-        
-        _return.errorCode = getDB(id,_return.profile);
+        mutexUpdate.lock();
+        Poco::SharedPtr<userProfile> profile = users.get(id);
+        mutexUpdate.unlock();
+        if(profile.isNull()){
+            _return.errorCode = getDB(id,_return.profile);
+            if (_return.errorCode == 0){
+                std::cout<< "add new to Cache" << std::endl;
+                mutexUpdate.lock();
+                users.add(id,_return.profile);
+                mutexUpdate.unlock();
+            }
+        }else{
+            std::cout<< "get from Cache" << std::endl;
+            _return.errorCode = 0;
+            _return.profile = *profile.get();
+            _return.profile.id = id;
+        }
         printf("Get\n");
     }
 
@@ -98,12 +109,19 @@ public:
             return 1;
         }
         
+        mutexUpdate.lock();
+        users.update(id,newProfile);
+        mutexUpdate.unlock();
         
         printf("Update\n");
         return setDB(id,newProfile);
     }
 
     int32_t Delete(const int32_t id) {
+        
+        mutexUpdate.lock();
+        users.remove(id);
+        mutexUpdate.unlock();
         
         printf("Delete\n");
         return removeDB(id);
@@ -120,7 +138,7 @@ public:
 
     int setDB(int id, userProfile profile) {
         if (id == 0) return 1;
-        std::string vaule = profile.name + "\t" + (profile.gender?"1":"0") + "\t" + std::to_string(profile.birth);
+        std::string vaule = serializeProfile(profile);
         if(!db.set(std::to_string(id),vaule)){
             return 2;
         }
@@ -133,13 +151,8 @@ public:
         if (!db.get(std::to_string(id), &vaule)) {
             return 1;
         };
-        int date , gen;
-        char name[50];
-        sscanf(vaule.c_str(),"%s\t%d\t%d",name,&gen,&date);
+        deserilizeProfile(vaule,profile);
         profile.id = id;
-        profile.birth = date;
-        profile.name = name;
-        profile.gender = ((gen == 1) ? true : false);
         return 0;
     }
 
@@ -147,6 +160,21 @@ public:
         if (id == 0) return 0;
         db.remove(std::to_string(id));
         return 0;
+    }
+    
+    //https://stackoverflow.com/questions/19672155/apache-thrift-serialization-in-c
+    std::string serializeProfile(userProfile obj) {
+        std::shared_ptr<TMemoryBuffer> transportOut(new TMemoryBuffer());
+        std::shared_ptr<TBinaryProtocol> protocolOut(new TBinaryProtocol(transportOut));
+        obj.write(protocolOut.get());
+        std::string serialized_string = transportOut->getBufferAsString();
+        return serialized_string;
+    }
+    void deserilizeProfile(std::string serializeString , userProfile &profile){
+        std::shared_ptr<TMemoryBuffer> transportIn(new TMemoryBuffer());
+        std::shared_ptr<TBinaryProtocol> protocolIn(new TBinaryProtocol(transportIn));
+        transportIn.get()->write((uint8_t*)serializeString.c_str(),serializeString.length());
+        profile.read(protocolIn.get());
     }
 };
 
@@ -204,6 +232,9 @@ protected:
     void handleServer(const std::string& name,
             const std::string& value) {
         _serverRequested = atoi(value.c_str());
+        if (_serverRequested < 0 or _serverRequested > 3){
+            _serverRequested = 0;
+        }
     }
 
     int main(const std::vector<std::string>& args) {
