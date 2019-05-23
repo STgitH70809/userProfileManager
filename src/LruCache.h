@@ -23,13 +23,12 @@ template <class Key, class Value>
 class lruCache {
 public:
 
-    lruCache() : maxLength(100), next(0), upperBound(400), length(0) {
+    lruCache() : maxLength(100), next(0), upperBound(2000000000), length(0) {
     }
 
-    lruCache(int n) : maxLength(n), next(0), upperBound(4*n), length(0) {
+    lruCache(int n) : maxLength(n), next(0), upperBound(2000000000), length(0) {
         if (n < 2) {
             maxLength = 2;
-            upperBound = 6;
         }
     }
 
@@ -45,7 +44,7 @@ public:
         if (length == maxLength) {
             auto t = lru.begin();
             for(auto i = lru.begin(); i != lru.end();++i){
-                if (smaller(i->second,t->second)){
+                if (i->second < t->second){
                     t = i;
                 }
             }
@@ -90,13 +89,18 @@ private:
     
     int genNext(){
         next = (next + 1) % upperBound;
+        if (next == 0){
+            next = reCache();
+        }
         return next;
     }
-    bool smaller(int x, int y){
-        if ((y/maxLength) >= 2.7 and (x/maxLength) < 1) {
-            return false;
+    int reCache(){
+        //todo::sort this
+        int t = 0;
+        for (auto i = lru.begin(); i != lru.end(); ++i) {
+            lru.at(i->first) = t++;
         }
-        return x < y;
+        return t;
     }
 };
 

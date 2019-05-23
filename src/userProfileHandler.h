@@ -24,14 +24,6 @@
 #include "userProfileService.h"
 #include "Worker.h"
 #include <thrift/protocol/TBinaryProtocol.h>
-#include <thrift/protocol/TJSONProtocol.h>
-#include <thrift/server/TSimpleServer.h>
-#include <thrift/server/TThreadedServer.h>
-#include <thrift/server/TThreadPoolServer.h>
-#include <thrift/server/TNonblockingServer.h>
-#include <thrift/transport/TServerSocket.h>
-#include <thrift/transport/TNonblockingServerSocket.h>
-#include <thrift/concurrency/PosixThreadFactory.h>
 #include <thrift/transport/TBufferTransports.h>
 #include <iostream>
 #include <mutex>
@@ -47,7 +39,6 @@ using Poco::AutoPtr;
 using namespace ::apache::thrift;
 using namespace ::apache::thrift::protocol;
 using namespace ::apache::thrift::transport;
-using namespace ::apache::thrift::server;
 
 class userProfileServiceHandler : virtual public userProfileServiceIf {
 public:

@@ -11,7 +11,7 @@ void Worker::run() {
     AutoPtr<Notification> pNf(_queue.waitDequeueNotification());
     while (pNf) {
         CreatNotification* pCreateNf = dynamic_cast<CreatNotification*> (pNf.get());
-        if (pCreateNf) {// do some work
+        if (pCreateNf) {
             userProfileResult ret;
             H->Create(ret,pCreateNf->data());
         }

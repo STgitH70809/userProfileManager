@@ -27,8 +27,8 @@ void* threadFunc(void *param) {
         chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
         userProfile profile("Client2","Nu",1,1,1992);
         for (int i = 0; i < 10000; i++) {
-            userProfileResult ret;
-            client.Get(ret,150000 + rnd.next(150));
+            //userProfileResult ret;
+            client.Update(150000 + rnd.next(150),profile);
         }
         chrono::steady_clock::time_point end = chrono::steady_clock::now();
         cout << "Time difference = " << chrono::duration_cast< chrono::microseconds>(end - begin).count() / 1000000.0 << endl;
